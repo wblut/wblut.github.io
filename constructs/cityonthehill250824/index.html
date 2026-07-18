@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>City on the Hill - 250824</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { margin:0; padding:0; height:100%; background:#000; }
+    canvas { display:block; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+</head>
+<body>
+<script>
+let root, gap, range;
+const trunc = n => Math.trunc(n);
+const randint = (a, b) => trunc(random(a, b));
+const baseScale = 0.5;
+const refSize = 1200;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  noStroke();
+  let I,J,K;
+  do{
+    I=random(100,1600);
+J=random(100,1600);
+K=random(100,1600);
+
+  }while(I*J*K<100000000 || I*J*K>1000000000);
+  root = new Box(0, 0, 0, I,J,K);
+  gap = 0;
+  range = [
+    root.cx - trunc(root.dx/2), root.cx + trunc(root.dx/2),
+    root.cy - trunc(root.dy/2), root.cy + trunc(root.dy/2),
+    root.cz - trunc(root.dz/2), root.cz + trunc(root.dz/2)
+  ];
+}
+
+function draw() {
+  background(25);
+  ortho(-width/2, width/2, -height/2, height/2, 0.1, 100000);
+  translate(0, 0, -10000);
+  rotateZ(PI/3.0);
+  directionalLight(0, 255, 255, 0, 1, 0);
+  directionalLight(120, 120, 0, -1, 0, -1);
+  pointLight(255, 0, 100, 0, 0, 0);
+  rotateX(asin(1.0 / sqrt(3.0)));
+  rotateY(QUARTER_PI);
+  translate(
+    -trunc((range[0] + range[1]) / 2),
+    -trunc((range[2] + range[3]) / 2),
+    -trunc((range[4] + range[5]) / 2)
+  );
+  const s = baseScale * (min(width, height) / refSize);
+  scale(s);
+  root.draw();
+}
+
+function mousePressed() { sliceAndDice(); }
+function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+
+function sliceAndDice() {
+  const roll = randint(0, 6);
+  if (roll === 0) root.splitAndTranslate(0, 20*randint(-15,15), 10*randint(-5,5), 10*randint(-5,5));
+  else if (roll === 1) root.splitAndTranslate(1, 20*randint(-15,15), 10*randint(-5,5), 10*randint(-5,5));
+  else if (roll === 2) root.splitAndTranslate(2, 20*randint(-15,15), 10*randint(-5,5), 10*randint(-5,5));
+  else if (roll === 3) root.splitAndRotate(0, 20*randint(-15,15), 5*randint(-5,5), 5*randint(-5,5), randint(1,3));
+  else if (roll === 4) root.splitAndRotate(1, 20*randint(-15,15), 5*randint(-5,5), 5*randint(-5,5), randint(1,3));
+  else root.splitAndRotate(2, 20*randint(-15,15), 5*randint(-5,5), 5*randint(-5,5), randint(1,3));
+  root.getRange(range);
+}
+
+class Box {
+  constructor(cx, cy, cz, dx, dy, dz) {
+    this.cx = cx; this.cy = cy; this.cz = cz;
+    this.dx = dx; this.dy = dy; this.dz = dz;
+    this.children = [];
+    this.level = 0;
+    this.parent = null;
+  }
+
+  draw() {
+    if (this.children.length === 0) {
+      push();
+      translate(this.cx, this.cy, this.cz);
+
+      box(this.dx, this.dy, this.dz);
+      pop();
+    } else {
+      for (const c of this.children) c.draw();
+    }
+  }
+
+  translateBox(tx, ty, tz) { this.cx += tx; this.cy += ty; this.cz += tz; }
+
+  rotateBox(axis, p0, p1) {
+    const pos = [this.cx, this.cy, this.cz];
+    const size = [this.dx, this.dy, this.dz];
+    const planes = [[1,2],[0,2],[0,1]];
+    const [a,b] = planes[axis];
+    const nx = pos[a] - p0;
+    const ny = pos[b] - p1;
+    pos[a] = -ny + p0;
+    pos[b] =  nx + p1;
+    [size[a], size[b]] = [size[b], size[a]];
+    [this.cx, this.cy, this.cz] = pos;
+    [this.dx, this.dy, this.dz] = size;
+  }
+
+  splitAndTranslate(axis, cut, offA, offB) {
+    if (this.children.length !== 0) { for (const c of this.children) c.splitAndTranslate(axis, cut, offA, offB); return; }
+    const pos = [this.cx, this.cy, this.cz];
+    const size = [this.dx, this.dy, this.dz];
+    const half = trunc(size[axis]/2);
+    const cmin = pos[axis] - half;
+    const cmax = pos[axis] + half;
+    const other = [[1,2],[0,2],[0,1]][axis];
+    if (cut <= cmin) {
+      const child2 = new Box(this.cx, this.cy, this.cz, this.dx, this.dy, this.dz);
+      const t = [0,0,0]; t[axis] = gap; t[other[0]] = offA; t[other[1]] = offB;
+      child2.translateBox(t[0], t[1], t[2]);
+      child2.parent = this; child2.level = this.level + 1;
+      this.children.push(child2);
+    } else if (cut >= cmax) {
+      const child1 = new Box(this.cx, this.cy, this.cz, this.dx, this.dy, this.dz);
+      child1.parent = this; child1.level = this.level + 1;
+      this.children.push(child1);
+    } else {
+      const pos1 = [...pos], size1 = [...size];
+      size1[axis] = cut - pos[axis] + half;
+      pos1[axis] = trunc((cut + cmin)/2);
+      const child1 = new Box(pos1[0], pos1[1], pos1[2], size1[0], size1[1], size1[2]);
+      child1.parent = this; child1.level = this.level + 1;
+      this.children.push(child1);
+
+      const pos2 = [...pos], size2 = [...size];
+      size2[axis] = cmax - cut;
+      pos2[axis] = trunc((cmax + cut)/2);
+      const child2 = new Box(pos2[0], pos2[1], pos2[2], size2[0], size2[1], size2[2]);
+      const t = [0,0,0]; t[axis] = gap; t[other[0]] = offA; t[other[1]] = offB;
+      child2.translateBox(t[0], t[1], t[2]);
+      child2.parent = this; child2.level = this.level + 1;
+      this.children.push(child2);
+    }
+  }
+
+  splitAndRotate(axis, cut, p0, p1, r) {
+    if (this.children.length !== 0) { for (const c of this.children) c.splitAndRotate(axis, cut, p0, p1, r); return; }
+    const pos = [this.cx, this.cy, this.cz];
+    const size = [this.dx, this.dy, this.dz];
+    const half = trunc(size[axis]/2);
+    const cmin = pos[axis] - half;
+    const cmax = pos[axis] + half;
+    if (cut <= cmin) {
+      const child2 = new Box(this.cx, this.cy, this.cz, this.dx, this.dy, this.dz);
+      for (let i=0;i<r;i++) child2.rotateBox(axis, p0, p1);
+      const t = [0,0,0]; t[axis] = gap;
+      child2.translateBox(t[0], t[1], t[2]);
+      child2.parent = this; child2.level = this.level + 1;
+      this.children.push(child2);
+    } else if (cut >= cmax) {
+      const child1 = new Box(this.cx, this.cy, this.cz, this.dx, this.dy, this.dz);
+      child1.parent = this; child1.level = this.level + 1;
+      this.children.push(child1);
+    } else {
+      const pos1 = [...pos], size1 = [...size];
+      size1[axis] = cut - pos[axis] + half;
+      pos1[axis] = trunc((cut + cmin)/2);
+      const child1 = new Box(pos1[0], pos1[1], pos1[2], size1[0], size1[1], size1[2]);
+      child1.parent = this; child1.level = this.level + 1;
+      this.children.push(child1);
+
+      const pos2 = [...pos], size2 = [...size];
+      size2[axis] = cmax - cut;
+      pos2[axis] = trunc((cmax + cut)/2);
+      const child2 = new Box(pos2[0], pos2[1], pos2[2], size2[0], size2[1], size2[2]);
+      for (let i=0;i<r;i++) child2.rotateBox(axis, p0, p1);
+      const t = [0,0,0]; t[axis] = gap;
+      child2.translateBox(t[0], t[1], t[2]);
+      child2.parent = this; child2.level = this.level + 1;
+      this.children.push(child2);
+    }
+  }
+
+  getRange(rangeArr) {
+    if (this.children.length === 0) {
+      rangeArr[0] = min(rangeArr[0], this.cx - trunc(this.dx/2));
+      rangeArr[1] = max(rangeArr[1], this.cx + trunc(this.dx/2));
+      rangeArr[2] = min(rangeArr[2], this.cy - trunc(this.dy/2));
+      rangeArr[3] = max(rangeArr[3], this.cy + trunc(this.dy/2));
+      rangeArr[4] = min(rangeArr[4], this.cz - trunc(this.dz/2));
+      rangeArr[5] = max(rangeArr[5], this.cz + trunc(this.dz/2));
+    } else {
+      for (const c of this.children) c.getRange(rangeArr);
+    }
+  }
+}
+</script>
+</body>
+</html>

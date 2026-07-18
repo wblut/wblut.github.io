@@ -1,0 +1,1 @@
+void 0===window.nil&&(window.nil={}),window.nil.metadata={name:"Unbroken despite appearances",author:"Frederik Vanhoutte, wblut",aspect_ratio:"1:1"};
