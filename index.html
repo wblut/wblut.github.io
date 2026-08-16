@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>Internal Scan</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+*{ box-sizing: border-box; margin: 0; padding: 0; }
+#container{ position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+#fps{ position: absolute; left: 0; top: 0; padding: 5px; color: #00ff00; background-color: black; z-index: 100 }
+		</style>
+
+</head>
+	<body style="overflow:hidden"> >
+		<div id="container"></div>
+		<div id="fps" ></div>
+		<script src="../js/three.js"></script>
+		<script src="../js/OrbitControls.js"></script>
+
+<script type="x-shader/x-vertex" id="particles-vs" >
+#define EPSILON 	0.005
+#define MAXDIST 	100.0
+#define MAXSTEPS	100
+#define PI 3.14159265
+#define TAU (2.0*PI)
+#define PHI (sqrt(5.0)*0.5 + 0.5)
+
+attribute vec3 position;
+attribute vec3 normal;
+
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+uniform float time;
+varying float vColor;
+varying float valid;
+
+float torus(vec3 p, float smallRadius, float largeRadius) {
+	return length(vec2(length(p.xz) - largeRadius, p.y)) - smallRadius;
+}
+
+
+vec2 mod2(inout vec2 p, vec2 size) {
+	vec2 c = floor((p + size*0.5)/size);
+	p = mod(p + size*0.5,size) - size*0.5;
+	return c;
+}
+
+vec3 opTwist( vec3 p )
+{
+    float t = time + cos (p.y)*sin (time)*p.y;
+    float c = cos(p.y+t);
+    float s = sin(p.y+t);
+    mat2  m = mat2(c,-s,s,c);
+    vec3  q = vec3(m*p.xz,p.y);
+    return q;
+}
+
+
+
+float map (vec3 p, float t) {
+	vec3 pp =opTwist( p );
+	mod2(pp.yz, vec2(0.4*(1.2+cos (0.17*time)),0.4*(1.2+sin (0.39*time)))) ;
+ 	return max(pp.y-0.05,torus(pp,0.1+0.3*(1.0+sin (0.73*time)),0.4));
+}
+
+float march (vec3 ro, vec3 rd, float time) {
+ 	float d = EPSILON;
+    float t = 0.0;
+    for (int i = 0; i < MAXSTEPS; ++i) {
+     	vec3 p = ro + rd * d;
+       	t = map (p, time);
+        if (t < EPSILON || d >= MAXDIST)
+            return (d>=MAXDIST)?0.0:d;
+        d += t;
+    }
+    return 0.0;
+}
+
+mat3 rotationMatrix(vec3 axis, float angle)
+{
+    float s = sin(angle);
+    float c = cos(angle);
+    float oc = 1.0 - c;
+    return mat3(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,
+                oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,
+                oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c);
+}
+
+void main () {
+	valid=1.0;
+	vec3 rd = - normalize( position );
+    vec3 ro = position*rotationMatrix(vec3(0.,0.,1.),time);
+    float d = march( ro, rd, 0. );
+    if(d==0.0) valid=0.0;
+    vec3 p = ro + d * rd;
+    vColor=d;
+	vec4 mVPosition = modelViewMatrix * vec4( p, 1. );
+	gl_PointSize =5.0 / -mVPosition.z;
+	gl_Position = projectionMatrix * mVPosition;
+}
+
+</script>
+
+<script type="x-shader/x-fragment" id="particles-fs" >
+precision highp float;
+varying float vColor;
+varying float valid;
+void main () {
+	if(valid==0.0) discard;
+	float a=max(0.0,1.0-(44.0-(vColor-0.5)*(vColor-0.5)*160.0)*((gl_PointCoord.s-0.5)*(gl_PointCoord.s-0.5)+(gl_PointCoord.t-0.5)*(gl_PointCoord.t-0.5)));
+                a*=a;
+                if(a<0.1) discard;
+                gl_FragColor = vec4( 1.0,vColor,vColor,a);
+}
+
+
+</script>
+
+<script>
+
+'use strict';
+
+var renderer, camera, controls, scene;
+var container = document.getElementById( 'container' );
+
+var particles;
+
+var frames = 0;
+var startTime = 0;
+var fps = document.getElementById( 'fps' );
+
+function initScene() {
+
+	var geometry = new THREE.IcosahedronGeometry( 2, 7);
+
+	var material = new THREE.RawShaderMaterial( {
+		uniforms: {
+			time: { type: 'f', value: 0 }
+		},
+		vertexShader: document.getElementById( 'particles-vs' ).textContent,
+		fragmentShader: document.getElementById( 'particles-fs' ).textContent,
+		wireframe: !true
+	} );
+	material.transparent = true;
+    material.blending = THREE.AdditiveBlending;
+	particles = new THREE.Points( geometry, material );
+	scene.add( particles );
+
+}
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .1, 1000 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 2, 2 );
+	camera.lookAt( camera.target );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: !true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0x000000, 1 );
+	container.appendChild( renderer.domElement );
+
+	initScene();
+
+	renderer.render( scene, camera );
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	startTime = performance.now();
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+}
+
+function animate() {
+
+	window.requestAnimationFrame( animate );
+
+	controls.update();
+
+	particles.material.uniforms.time.value = .001 * performance.now();
+	renderer.render( scene, camera );
+
+	frames++;
+
+	var t = performance.now();
+	var et = t - startTime;
+	if( et > 1000 ) {
+		//fps.textContent = ( frames * et / 1000 ).toFixed( 2 );
+		frames = 0;
+		startTime = t;
+	}
+
+}
+
+init();
+
+</script>
+
+	</body>
+</html>
